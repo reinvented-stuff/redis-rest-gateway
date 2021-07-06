@@ -81,6 +81,7 @@ type handleSignalParamsStruct struct {
 }
 
 type MetricsStruct struct {
+	Index    int32
 	Warnings int32
 	Errors   int32
 	Create   int32
@@ -95,6 +96,7 @@ var handleSignalParams = handleSignalParamsStruct{}
 
 var MetricsNotifierPeriod int = 60
 var Metrics = MetricsStruct{
+	Index:    0,
 	Warnings: 0,
 	Errors:   0,
 	Create:   0,
@@ -172,22 +174,30 @@ func metricsNotifier() {
 }
 
 func handlerIndex(rw http.ResponseWriter, req *http.Request) {
+	_ = atomic.AddInt32(&Metrics.Index, 1)
 	fmt.Fprintf(rw, "%s v%s\n", html.EscapeString(ApplicationDescription), html.EscapeString(BuildVersion))
 }
 
 func handlerMetrics(rw http.ResponseWriter, req *http.Request) {
 
-	fmt.Fprintf(rw, "# TYPE RedisRequests counter\n")
+	fmt.Fprintf(rw, "# TYPE redis_rest_gw_requests counter\n")
+	fmt.Fprintf(rw, "# HELP Number of the requests to the REST Gateway by type\n")
 	fmt.Fprintf(rw, "redis_rest_gw_requests{method=\"create\"} %v\n", Metrics.Create)
 	fmt.Fprintf(rw, "redis_rest_gw_requests{method=\"read\"} %v\n", Metrics.Read)
 	fmt.Fprintf(rw, "redis_rest_gw_requests{method=\"update\"} %v\n", Metrics.Update)
 	fmt.Fprintf(rw, "redis_rest_gw_requests{method=\"delete\"} %v\n", Metrics.Delete)
 
-	fmt.Fprintf(rw, "# TYPE Errors counter\n")
+	fmt.Fprintf(rw, "# TYPE redis_rest_gw_errors counter\n")
+	fmt.Fprintf(rw, "# HELP Number of the raised errors\n")
 	fmt.Fprintf(rw, "redis_rest_gw_errors %v\n", Metrics.Errors)
 
-	fmt.Fprintf(rw, "# TYPE Warnings counter\n")
+	fmt.Fprintf(rw, "# TYPE redis_rest_gw_warnings counter\n")
+	fmt.Fprintf(rw, "# HELP Number of the raised warnings\n")
 	fmt.Fprintf(rw, "redis_rest_gw_warnings %v\n", Metrics.Warnings)
+
+	fmt.Fprintf(rw, "# TYPE redis_rest_gw_index counter\n")
+	fmt.Fprintf(rw, "# HELP Number of the requests to /\n")
+	fmt.Fprintf(rw, "redis_rest_gw_index %v\n", Metrics.Index)
 
 }
 
