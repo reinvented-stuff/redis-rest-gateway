@@ -84,8 +84,26 @@ podman run \
   --detached \
   --name redis-rest-gateway \
   -e "REDIS_PASSWORD=optional-redis-password" \
-  "quay.io/reinventedstuff/redis-rest-gateway:1.0.0" \
+  "quay.io/reinventedstuff/redis-rest-gateway:1.0.1" \
   -bind 127.0.0.1:8080 \
   -redis-address 127.0.0.1:6379 \
   -redis-db 0
+```
+
+# Prometheus Metrics
+
+```bash
+curl http://127.0.0.1:8080/metrics
+```
+
+```prometheus
+# TYPE RedisRequests counter
+redis_rest_gw_requests{method="create"} 931
+redis_rest_gw_requests{method="read"} 2431
+redis_rest_gw_requests{method="update"} 12
+redis_rest_gw_requests{method="delete"} 3
+# TYPE Errors counter
+redis_rest_gw_errors 348
+# TYPE Warnings counter
+redis_rest_gw_warnings 108
 ```

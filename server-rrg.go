@@ -175,6 +175,22 @@ func handlerIndex(rw http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(rw, "%s v%s\n", html.EscapeString(ApplicationDescription), html.EscapeString(BuildVersion))
 }
 
+func handlerMetrics(rw http.ResponseWriter, req *http.Request) {
+
+	fmt.Fprintf(rw, "# TYPE RedisRequests counter\n")
+	fmt.Fprintf(rw, "redis_rest_gw_requests{method=\"create\"} %v\n", Metrics.Create)
+	fmt.Fprintf(rw, "redis_rest_gw_requests{method=\"read\"} %v\n", Metrics.Read)
+	fmt.Fprintf(rw, "redis_rest_gw_requests{method=\"update\"} %v\n", Metrics.Update)
+	fmt.Fprintf(rw, "redis_rest_gw_requests{method=\"delete\"} %v\n", Metrics.Delete)
+
+	fmt.Fprintf(rw, "# TYPE Errors counter\n")
+	fmt.Fprintf(rw, "redis_rest_gw_errors %v\n", Metrics.Errors)
+
+	fmt.Fprintf(rw, "# TYPE Warnings counter\n")
+	fmt.Fprintf(rw, "redis_rest_gw_warnings %v\n", Metrics.Warnings)
+
+}
+
 func handlerCreate(rw http.ResponseWriter, req *http.Request) {
 
 	var APICreateRequest APICreateRequestStruct
@@ -236,6 +252,8 @@ func handlerRead(rw http.ResponseWriter, req *http.Request) {
 	var APIReadRequest APIReadRequestStruct
 	var APIReadResponse APIReadResponseStruct
 
+	_ = atomic.AddInt32(&Metrics.Read, 1)
+
 	if req.Method != "POST" {
 		log.Warn().Msgf("Ignoring unsupported http method %s", req.Method)
 		rw.WriteHeader(http.StatusMethodNotAllowed)
@@ -280,8 +298,6 @@ func handlerRead(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	_ = atomic.AddInt32(&Metrics.Read, 1)
-
 	APIReadResponse.Uid = uid
 	APIReadResponse.Key = APIReadRequest.Key
 	APIReadResponse.Value = value
@@ -300,6 +316,8 @@ func handlerUpdate(rw http.ResponseWriter, req *http.Request) {
 
 	var APIUpdateRequest APIUpdateRequestStruct
 	var APIUpdateResponse APIUpdateResponseStruct
+
+	_ = atomic.AddInt32(&Metrics.Update, 1)
 
 	if req.Method != "POST" {
 		log.Warn().Msgf("Ignoring unsupported http method %s", req.Method)
@@ -337,8 +355,6 @@ func handlerUpdate(rw http.ResponseWriter, req *http.Request) {
 	result := rdb.Set(ctx, APIUpdateRequest.Key, APIUpdateRequest.Value, 0)
 	log.Info().Msgf("Update result: %+v", result)
 
-	_ = atomic.AddInt32(&Metrics.Update, 1)
-
 	APIUpdateResponse.Uid = uid
 	APIUpdateResponse.Key = APIUpdateRequest.Key
 	APIUpdateResponse.Value = APIUpdateRequest.Value
@@ -357,6 +373,8 @@ func handlerDelete(rw http.ResponseWriter, req *http.Request) {
 
 	var APIDeleteRequest APIDeleteRequestStruct
 	var APIDeleteResponse APIDeleteResponseStruct
+
+	_ = atomic.AddInt32(&Metrics.Delete, 1)
 
 	if req.Method != "POST" {
 		log.Warn().Msgf("Ignoring unsupported http method %s", req.Method)
@@ -394,8 +412,6 @@ func handlerDelete(rw http.ResponseWriter, req *http.Request) {
 	result := rdb.Del(ctx, APIDeleteRequest.Key)
 	log.Info().Msgf("Del result: %+v", result)
 
-	_ = atomic.AddInt32(&Metrics.Delete, 1)
-
 	APIDeleteResponse.Uid = uid
 	APIDeleteResponse.Key = APIDeleteRequest.Key
 
@@ -424,7 +440,6 @@ func main() {
 	log.Debug().Msg("Logger initialised")
 
 	handleSignal()
-	metricsNotifier()
 
 	if *enableDebugPtr {
 		Debug = true
@@ -439,6 +454,10 @@ func main() {
 		fmt.Printf("%s\n", ApplicationDescription)
 		fmt.Printf("Version: %s\n", BuildVersion)
 		os.Exit(0)
+	}
+
+	if Debug {
+		metricsNotifier()
 	}
 
 	redis_address, err := net.ResolveTCPAddr("tcp4", *redisAddressPtr)
@@ -472,6 +491,7 @@ func main() {
 	handleSignalParams.httpServer = *srv
 
 	http.HandleFunc("/", handlerIndex)
+	http.HandleFunc("/metrics", handlerMetrics)
 	http.HandleFunc("/create", handlerCreate)
 	http.HandleFunc("/read", handlerRead)
 	http.HandleFunc("/update", handlerUpdate)
