@@ -55,10 +55,9 @@ type APICreateResponseStruct struct {
 }
 
 type APIReadResponseStruct struct {
-	Uid   uint64                 `json:"uid"`
-	Key   string                 `json:"key"`
-	Value string                 `json:"value"`
-	Error APIResponseErrorStruct `json:"error"`
+	Uid   uint64 `json:"uid"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type APIUpdateResponseStruct struct {
@@ -68,19 +67,13 @@ type APIUpdateResponseStruct struct {
 }
 
 type APIDeleteResponseStruct struct {
-	Uid   uint64 `json:"uid"`
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-type APIResponseErrorStruct struct {
-	Code    uint16 `json:"code"`
-	Message string `json:"message"`
+	Uid uint64 `json:"uid"`
+	Key string `json:"key"`
 }
 
 type ConfigurationStruct struct {
 	Listen string `json:"listen"`
-	// Database DatabaseStruct `json:"database"`
+	// Redis RedisStruct `json:"redis"`
 }
 
 type handleSignalParamsStruct struct {
@@ -185,19 +178,36 @@ func handlerIndex(rw http.ResponseWriter, req *http.Request) {
 func handlerCreate(rw http.ResponseWriter, req *http.Request) {
 
 	var APICreateRequest APICreateRequestStruct
+	var APICreateResponse APICreateResponseStruct
+
+	if req.Method != "POST" {
+		log.Warn().Msgf("Ignoring unsupported http method %s", req.Method)
+		rw.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 
 	JSONDecoder := json.NewDecoder(req.Body)
 	err := JSONDecoder.Decode(&APICreateRequest)
 	if err != nil {
 		_ = atomic.AddInt32(&Metrics.Errors, 1)
-		log.Fatal().Err(err).Msgf("Error while reading API Response")
+		log.Err(err).Msgf("Error while JSON decoding the API request")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
-	log.Info().Msgf("Create payload: %s", APICreateRequest)
+	log.Info().Msgf("Create payload: %+v", APICreateRequest)
+
+	if APICreateRequest.Key == "" {
+		log.Warn().Msgf("Field 'key' not found or empty in request, dismissing.")
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
 
 	uid, err := flake.NextID()
 	if err != nil {
-		log.Fatal().Err(err).Msgf("flake.NextID() failed")
+		log.Err(err).Msgf("flake.NextID() failed")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	APICreateRequest.Uid = uid
@@ -207,14 +217,15 @@ func handlerCreate(rw http.ResponseWriter, req *http.Request) {
 
 	_ = atomic.AddInt32(&Metrics.Create, 1)
 
-	response := &APICreateResponseStruct{
-		Uid: uid,
-		Key: APICreateRequest.Key,
-	}
+	APICreateResponse.Uid = uid
+	APICreateResponse.Key = APICreateRequest.Key
+	APICreateResponse.Value = APICreateRequest.Value
 
-	response_json, err := json.Marshal(response)
+	response_json, err := json.Marshal(APICreateResponse)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("APICreateResponseStruct marshall failed")
+		log.Err(err).Msgf("APICreateResponseStruct marshall failed")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	fmt.Fprintf(rw, string(response_json))
@@ -225,32 +236,48 @@ func handlerRead(rw http.ResponseWriter, req *http.Request) {
 	var APIReadRequest APIReadRequestStruct
 	var APIReadResponse APIReadResponseStruct
 
+	if req.Method != "POST" {
+		log.Warn().Msgf("Ignoring unsupported http method %s", req.Method)
+		rw.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	JSONDecoder := json.NewDecoder(req.Body)
 	err := JSONDecoder.Decode(&APIReadRequest)
 	if err != nil {
 		_ = atomic.AddInt32(&Metrics.Errors, 1)
-		log.Fatal().Err(err).Msgf("Error while reading API Response")
+		log.Err(err).Msgf("Error while JSON decoding the API request")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
-	log.Info().Msgf("Read payload: %s", APIReadRequest)
+	log.Info().Msgf("Read payload: %+v", APIReadRequest)
+
+	if APIReadRequest.Key == "" {
+		log.Warn().Msgf("Field 'key' not found or empty in request, dismissing.")
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
 
 	uid, err := flake.NextID()
 	if err != nil {
 		_ = atomic.AddInt32(&Metrics.Errors, 1)
-		log.Fatal().Err(err).Msgf("flake.NextID() failed")
+		log.Err(err).Msgf("flake.NextID() failed")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	APIReadRequest.Uid = uid
 
 	result := rdb.Get(ctx, APIReadRequest.Key)
-	log.Info().Msgf("Read result: %s", result)
+	log.Info().Msgf("Read result: %+v", result)
 
 	value, err := result.Result()
 	if err != nil {
 		_ = atomic.AddInt32(&Metrics.Errors, 1)
 		log.Err(err).Msgf("Can't fetch result after Redis Get")
-		APIReadResponse.Error.Message = err.Error()
-		APIReadResponse.Error.Code = 404
+		rw.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	_ = atomic.AddInt32(&Metrics.Read, 1)
@@ -261,7 +288,9 @@ func handlerRead(rw http.ResponseWriter, req *http.Request) {
 
 	response_json, err := json.Marshal(APIReadResponse)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("APIReadResponseStruct marshall failed")
+		log.Err(err).Msgf("APICreateResponseStruct marshall failed")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	fmt.Fprintf(rw, string(response_json))
@@ -270,38 +299,55 @@ func handlerRead(rw http.ResponseWriter, req *http.Request) {
 func handlerUpdate(rw http.ResponseWriter, req *http.Request) {
 
 	var APIUpdateRequest APIUpdateRequestStruct
+	var APIUpdateResponse APIUpdateResponseStruct
+
+	if req.Method != "POST" {
+		log.Warn().Msgf("Ignoring unsupported http method %s", req.Method)
+		rw.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 
 	JSONDecoder := json.NewDecoder(req.Body)
 	err := JSONDecoder.Decode(&APIUpdateRequest)
 	if err != nil {
 		_ = atomic.AddInt32(&Metrics.Errors, 1)
-		log.Fatal().Err(err).Msgf("Error while reading API Response")
+		log.Err(err).Msgf("Error while JSON decoding the API request")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
-	log.Info().Msgf("Update payload: %s", APIUpdateRequest)
+	log.Info().Msgf("Update payload: %+v", APIUpdateRequest)
+
+	if APIUpdateRequest.Key == "" {
+		log.Warn().Msgf("Field 'key' not found or empty in request, dismissing.")
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
 
 	uid, err := flake.NextID()
 	if err != nil {
 		_ = atomic.AddInt32(&Metrics.Errors, 1)
-		log.Fatal().Err(err).Msgf("flake.NextID() failed")
+		log.Err(err).Msgf("flake.NextID() failed")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	APIUpdateRequest.Uid = uid
 
 	result := rdb.Set(ctx, APIUpdateRequest.Key, APIUpdateRequest.Value, 0)
-	log.Info().Msgf("Update result: %s", result)
+	log.Info().Msgf("Update result: %+v", result)
 
 	_ = atomic.AddInt32(&Metrics.Update, 1)
 
-	response := &APIUpdateResponseStruct{
-		Uid:   uid,
-		Key:   APIUpdateRequest.Key,
-		Value: APIUpdateRequest.Value,
-	}
+	APIUpdateResponse.Uid = uid
+	APIUpdateResponse.Key = APIUpdateRequest.Key
+	APIUpdateResponse.Value = APIUpdateRequest.Value
 
-	response_json, err := json.Marshal(response)
+	response_json, err := json.Marshal(APIUpdateResponse)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("APIUpdateResponseStruct marshall failed")
+		log.Err(err).Msgf("APICreateResponseStruct marshall failed")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	fmt.Fprintf(rw, string(response_json))
@@ -310,38 +356,54 @@ func handlerUpdate(rw http.ResponseWriter, req *http.Request) {
 func handlerDelete(rw http.ResponseWriter, req *http.Request) {
 
 	var APIDeleteRequest APIDeleteRequestStruct
+	var APIDeleteResponse APIDeleteResponseStruct
+
+	if req.Method != "POST" {
+		log.Warn().Msgf("Ignoring unsupported http method %s", req.Method)
+		rw.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 
 	JSONDecoder := json.NewDecoder(req.Body)
 	err := JSONDecoder.Decode(&APIDeleteRequest)
 	if err != nil {
 		_ = atomic.AddInt32(&Metrics.Errors, 1)
-		log.Fatal().Err(err).Msgf("Error while reading API Response")
+		log.Err(err).Msgf("Error while JSON decoding the API request")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
-	log.Info().Msgf("Del payload: %s", APIDeleteRequest)
+	log.Info().Msgf("Del payload: %+v", APIDeleteRequest)
+
+	if APIDeleteRequest.Key == "" {
+		log.Warn().Msgf("Field 'key' not found or empty in request, dismissing.")
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
 
 	uid, err := flake.NextID()
 	if err != nil {
 		_ = atomic.AddInt32(&Metrics.Errors, 1)
-		log.Fatal().Err(err).Msgf("flake.NextID() failed")
+		log.Err(err).Msgf("flake.NextID() failed")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	APIDeleteRequest.Uid = uid
 
 	result := rdb.Del(ctx, APIDeleteRequest.Key)
-	log.Info().Msgf("Del result: %s", result)
+	log.Info().Msgf("Del result: %+v", result)
 
 	_ = atomic.AddInt32(&Metrics.Delete, 1)
 
-	response := &APIDeleteResponseStruct{
-		Uid: uid,
-		Key: APIDeleteRequest.Key,
-		// Value: APIDeleteRequest.Value,
-	}
+	APIDeleteResponse.Uid = uid
+	APIDeleteResponse.Key = APIDeleteRequest.Key
 
-	response_json, err := json.Marshal(response)
+	response_json, err := json.Marshal(APIDeleteResponse)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("APIDeleteResponseStruct marshall failed")
+		log.Err(err).Msgf("APICreateResponseStruct marshall failed")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	fmt.Fprintf(rw, string(response_json))
