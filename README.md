@@ -97,13 +97,19 @@ curl http://127.0.0.1:8080/metrics
 ```
 
 ```prometheus
-# TYPE RedisRequests counter
-redis_rest_gw_requests{method="create"} 931
-redis_rest_gw_requests{method="read"} 2431
-redis_rest_gw_requests{method="update"} 12
-redis_rest_gw_requests{method="delete"} 3
-# TYPE Errors counter
-redis_rest_gw_errors 348
-# TYPE Warnings counter
-redis_rest_gw_warnings 108
+# TYPE redis_rest_gw_requests counter
+# HELP Number of the requests to the REST Gateway by type
+redis_rest_gw_requests{method="create"} 2841
+redis_rest_gw_requests{method="read"} 8947
+redis_rest_gw_requests{method="update"} 1221
+redis_rest_gw_requests{method="delete"} 83
+# TYPE redis_rest_gw_errors counter
+# HELP Number of the raised errors
+redis_rest_gw_errors 291
+# TYPE redis_rest_gw_warnings counter
+# HELP Number of the raised warnings
+redis_rest_gw_warnings 842
+# TYPE redis_rest_gw_index counter
+# HELP Number of the requests to /
+redis_rest_gw_index 8
 ```
